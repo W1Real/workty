@@ -30,15 +30,35 @@ impl Default for Config {
 
 impl Config {
     pub fn load(repo: &GitRepo) -> Result<Self> {
-        let path = config_path(repo);
-        if path.exists() {
-            let contents = std::fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read config from {}", path.display()))?;
-            toml::from_str(&contents)
-                .with_context(|| format!("Failed to parse config from {}", path.display()))
-        } else {
-            Ok(Self::default())
+        let mut candidates = vec![
+            // 1. Repo root
+            repo.root.join(CONFIG_FILENAME),
+            // 2. Git dir
+            config_path(repo),
+        ];
+
+        // 3. User config dir (~/.config/workty/workty.toml)
+        if let Some(config_dir) = dirs::config_dir() {
+            candidates.push(config_dir.join("workty").join(CONFIG_FILENAME));
         }
+
+        if let Some(home) = dirs::home_dir() {
+            // 4. ~/.workty.toml
+            candidates.push(home.join(format!(".{}", CONFIG_FILENAME)));
+            // 5. ~/workty.toml
+            candidates.push(home.join(CONFIG_FILENAME));
+        }
+
+        for path in candidates {
+            if path.exists() {
+                let contents = std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read config from {}", path.display()))?;
+                return toml::from_str(&contents)
+                    .with_context(|| format!("Failed to parse config from {}", path.display()));
+            }
+        }
+
+        Ok(Self::default())
     }
 
     #[allow(dead_code)]
@@ -58,10 +78,7 @@ impl Config {
 
         let id = compute_repo_id(repo);
 
-        let expanded = self
-            .root
-            .replace("{repo}", repo_name)
-            .replace("{id}", &id);
+        let expanded = self.root.replace("{repo}", repo_name).replace("{id}", &id);
 
         expand_tilde(&expanded)
     }
@@ -100,6 +117,10 @@ fn normalize_url(url: &str) -> String {
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
+    if path == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
+    }
+
     if let Some(rest) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest);
@@ -130,6 +151,19 @@ mod tests {
             normalize_url("git@github.com:user/repo.git/"),
             "git@github.com:user/repo"
         );
+    }
+
+    #[test]
+    fn test_expand_tilde() {
+        // We can't easily verify the exact home dir path in a cross-platform way without dirs::home_dir
+        // but we can check that it doesn't panic and returns something different than "~" if home exists
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expand_tilde("~"), home);
+            assert_eq!(expand_tilde("~/foo"), home.join("foo"));
+        }
+
+        assert_eq!(expand_tilde("/abs/path"), PathBuf::from("/abs/path"));
+        assert_eq!(expand_tilde("rel/path"), PathBuf::from("rel/path"));
     }
 
     #[test]
