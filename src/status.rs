@@ -42,12 +42,10 @@ fn get_dirty_count(worktree_path: &std::path::Path) -> usize {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter(|line| !line.is_empty())
-                .count()
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|line| !line.is_empty())
+            .count(),
         _ => 0,
     }
 }
@@ -68,7 +66,11 @@ fn get_ahead_behind(
     let upstream = match upstream {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         }
         _ => return (None, None, None),
     };
@@ -81,13 +83,14 @@ fn get_ahead_behind(
     match output {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = s.trim().split('\t').collect();
+            // Expected output: "1\t2" or "1 2"
+            let parts: Vec<&str> = s.split_whitespace().collect();
             if parts.len() == 2 {
                 let ahead = parts[0].parse().ok();
                 let behind = parts[1].parse().ok();
                 (upstream, ahead, behind)
             } else {
-                (upstream, None, None)
+                (upstream, Some(0), Some(0))
             }
         }
         _ => (upstream, None, None),
