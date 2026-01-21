@@ -70,7 +70,7 @@ impl Config {
     fn adjust_defaults(&mut self, repo: &GitRepo) {
         // If the base branch is the default one but it doesn't exist,
         // we try to detect the actual default branch (e.g. master, trunk, etc)
-        if self.base == DEFAULT_BASE && !crate::git::branch_exists(repo, DEFAULT_BASE) {
+        if self.base == DEFAULT_BASE && !repo.branch_exists(DEFAULT_BASE) {
             if let Some(default) = repo.default_branch() {
                 self.base = default;
             }

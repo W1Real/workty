@@ -113,5 +113,5 @@ pub fn is_worktree_dirty(worktree: &Worktree) -> bool {
 
 #[allow(dead_code)]
 pub fn check_branch_merged(repo: &GitRepo, branch: &str, base: &str) -> Result<bool> {
-    crate::git::is_ancestor(repo, branch, base)
+    repo.is_merged(branch, base)
 }

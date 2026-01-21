@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::git::{is_ancestor, GitRepo};
+use crate::git::GitRepo;
 use crate::status::is_worktree_dirty;
 use crate::ui::{print_info, print_success, print_warning};
 use crate::worktree::{list_worktrees, Worktree};
@@ -42,7 +42,7 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
 
             if opts.merged {
                 if let Some(branch) = &wt.branch_short {
-                    matches!(is_ancestor(repo, branch, &config.base), Ok(true))
+                    matches!(repo.is_merged(branch, &config.base), Ok(true))
                 } else {
                     false
                 }
@@ -59,7 +59,11 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
 
     println!("Worktrees to remove:");
     for wt in &candidates {
-        let dirty = if is_worktree_dirty(wt) { " (dirty)" } else { "" };
+        let dirty = if is_worktree_dirty(wt) {
+            " (dirty)"
+        } else {
+            ""
+        };
         println!("  - {}{}", wt.name(), dirty);
     }
 
@@ -88,10 +92,7 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
 
     if !opts.yes && std::io::stdin().is_terminal() {
         let confirm = Confirm::new()
-            .with_prompt(format!(
-                "Remove {} worktree(s)?",
-                clean_candidates.len()
-            ))
+            .with_prompt(format!("Remove {} worktree(s)?", clean_candidates.len()))
             .default(false)
             .interact()?;
 

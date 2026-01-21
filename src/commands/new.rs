@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::git::{branch_exists, GitRepo};
+use crate::git::GitRepo;
 use crate::ui::{print_info, print_success};
 use crate::worktree::{list_worktrees, slug_from_branch};
 use anyhow::{bail, Context, Result};
@@ -51,7 +51,7 @@ pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
-    let branch_already_exists = branch_exists(repo, branch_name);
+    let branch_already_exists = repo.branch_exists(branch_name);
 
     if branch_already_exists {
         print_info(&format!("Using existing branch '{}'", branch_name));

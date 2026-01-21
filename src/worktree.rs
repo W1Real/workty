@@ -1,7 +1,7 @@
 use crate::git::GitRepo;
 use anyhow::{Context, Result};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Worktree {
@@ -23,98 +23,134 @@ impl Worktree {
     }
 
     pub fn is_main_worktree(&self, repo: &GitRepo) -> bool {
-        self.path == repo.root
+        // Simple check: if path matches main repo root
+        // We find main repo root via common dir usually.
+        // Assuming common_dir parent is main root works for standard layouts.
+        repo.common_dir.parent() == Some(&self.path) || check_same_path(&self.path, &repo.root)
+        // Or compare with assumed main root logic
     }
 }
 
-pub fn parse_worktree_list(output: &str) -> Vec<Worktree> {
-    let mut worktrees = Vec::new();
-    let mut current: Option<WorktreeBuilder> = None;
-
-    for line in output.lines() {
-        if line.is_empty() {
-            if let Some(builder) = current.take() {
-                if let Some(worktree) = builder.build() {
-                    worktrees.push(worktree);
-                }
-            }
-            continue;
-        }
-
-        if let Some((key, value)) = line.split_once(' ') {
-            let builder = current.get_or_insert_with(WorktreeBuilder::default);
-            match key {
-                "worktree" => builder.path = Some(PathBuf::from(value)),
-                "HEAD" => builder.head = Some(value.to_string()),
-                "branch" => builder.branch = Some(value.to_string()),
-                "detached" => builder.detached = true,
-                "locked" => builder.locked = true,
-                "prunable" => builder.prunable = true,
-                _ => {}
-            }
-        } else {
-            let builder = current.get_or_insert_with(WorktreeBuilder::default);
-            match line {
-                "detached" => builder.detached = true,
-                "locked" => builder.locked = true,
-                "prunable" => builder.prunable = true,
-                "bare" => builder.bare = true,
-                _ => {}
-            }
-        }
-    }
-
-    if let Some(builder) = current {
-        if let Some(worktree) = builder.build() {
-            worktrees.push(worktree);
-        }
-    }
-
-    worktrees
-}
-
-#[derive(Default)]
-struct WorktreeBuilder {
-    path: Option<PathBuf>,
-    head: Option<String>,
-    branch: Option<String>,
-    detached: bool,
-    locked: bool,
-    prunable: bool,
-    bare: bool,
-}
-
-impl WorktreeBuilder {
-    fn build(self) -> Option<Worktree> {
-        let path = self.path?;
-        let head = self.head.unwrap_or_default();
-
-        if self.bare {
-            return None;
-        }
-
-        let branch_short = self
-            .branch
-            .as_ref()
-            .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
-
-        Some(Worktree {
-            path,
-            head,
-            branch: self.branch,
-            branch_short,
-            detached: self.detached,
-            locked: self.locked,
-            prunable: self.prunable,
-        })
-    }
+fn check_same_path(p1: &Path, p2: &Path) -> bool {
+    p1.canonicalize().ok() == p2.canonicalize().ok()
 }
 
 pub fn list_worktrees(repo: &GitRepo) -> Result<Vec<Worktree>> {
-    let output = repo
-        .run_git(&["worktree", "list", "--porcelain"])
-        .context("Failed to list worktrees")?;
-    Ok(parse_worktree_list(&output))
+    let git_repo = repo.repo.lock().unwrap();
+    let mut worktrees = Vec::new();
+
+    // 1. Linked Worktrees
+    let worktree_names = git_repo.worktrees().context("Failed to list worktrees")?;
+    for name in worktree_names.iter() {
+        let name = name.unwrap();
+        // git2::Worktree structure
+        let wt = git_repo.find_worktree(name)?;
+        let path = wt.path().to_path_buf();
+
+        let should_prune = wt.is_prunable(None).unwrap_or(false);
+        let is_locked = matches!(wt.is_locked(), Ok(git2::WorktreeLockStatus::Locked(_)));
+
+        // If prunable, we might not be able to open it
+        if should_prune {
+            worktrees.push(Worktree {
+                path,
+                head: String::new(),
+                branch: None,
+                branch_short: None,
+                detached: false,
+                locked: is_locked,
+                prunable: true,
+            });
+            continue;
+        }
+
+        // Try to open repo to get head info
+        // Note: Repository::open on a worktree path opens the worktree context
+        match git2::Repository::open(&path) {
+            Ok(wt_repo) => {
+                let (head, branch, branch_short, detached) = get_repo_head_info(&wt_repo);
+                worktrees.push(Worktree {
+                    path,
+                    head,
+                    branch,
+                    branch_short,
+                    detached,
+                    locked: is_locked,
+                    prunable: false,
+                });
+            }
+            Err(_) => {
+                // Could not open, maybe permissions or broken
+                worktrees.push(Worktree {
+                    path,
+                    head: String::new(),
+                    branch: None,
+                    branch_short: None,
+                    detached: false,
+                    locked: is_locked,
+                    prunable: true, // Treat as broken
+                });
+            }
+        }
+    }
+
+    // 2. Main Worktree
+    // We need to identify the main worktree.
+    // Logic: find common_dir, parent is main worktree.
+    let common_dir = if git_repo.is_worktree() {
+        // If we are in a worktree, path is .../.git/worktrees/name
+        git_repo
+            .path()
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or(git_repo.path())
+    } else {
+        // If we are in main, path is .../.git
+        git_repo.path()
+    };
+
+    let main_path = common_dir.parent().unwrap_or(common_dir);
+
+    // Add Main Worktree if not already added (though main usually not in linked list)
+    // We open main path to verify and get status
+    if let Ok(main_repo) = git2::Repository::open(main_path) {
+        if !worktrees
+            .iter()
+            .any(|w| check_same_path(&w.path, main_path))
+        {
+            let (head, branch, branch_short, detached) = get_repo_head_info(&main_repo);
+            worktrees.push(Worktree {
+                path: main_path.to_path_buf(),
+                head,
+                branch,
+                branch_short,
+                detached,
+                locked: false,
+                prunable: false,
+            });
+        }
+    }
+
+    Ok(worktrees)
+}
+
+fn get_repo_head_info(repo: &git2::Repository) -> (String, Option<String>, Option<String>, bool) {
+    let head_ref = repo.head();
+    match head_ref {
+        Ok(r) => {
+            let head_oid = r.target().map(|o| o.to_string()).unwrap_or_default();
+            let detached = repo.head_detached().unwrap_or(false);
+            let name = r.name().map(|s| s.to_string());
+
+            if detached {
+                (head_oid, None, None, true)
+            } else {
+                let shorthand = r.shorthand().map(|s| s.to_string());
+                (head_oid, name, shorthand, false)
+            }
+        }
+        Err(_) => (String::new(), None, None, false), // empty repo?
+    }
 }
 
 pub fn find_worktree<'a>(worktrees: &'a [Worktree], name: &str) -> Option<&'a Worktree> {
@@ -142,65 +178,6 @@ pub fn slug_from_branch(branch: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_worktree_list_normal() {
-        let output = r#"worktree /home/user/project
-HEAD abc123def456
-branch refs/heads/main
-
-worktree /home/user/.workty/project/feat-login
-HEAD def789abc012
-branch refs/heads/feat/login
-
-"#;
-        let worktrees = parse_worktree_list(output);
-        assert_eq!(worktrees.len(), 2);
-        assert_eq!(worktrees[0].branch_short.as_deref(), Some("main"));
-        assert_eq!(worktrees[1].branch_short.as_deref(), Some("feat/login"));
-        assert!(!worktrees[0].detached);
-    }
-
-    #[test]
-    fn test_parse_worktree_list_detached() {
-        let output = r#"worktree /home/user/project
-HEAD abc123def456
-detached
-
-"#;
-        let worktrees = parse_worktree_list(output);
-        assert_eq!(worktrees.len(), 1);
-        assert!(worktrees[0].detached);
-        assert!(worktrees[0].branch.is_none());
-    }
-
-    #[test]
-    fn test_parse_worktree_list_locked() {
-        let output = r#"worktree /home/user/project
-HEAD abc123def456
-branch refs/heads/main
-locked reason here
-
-"#;
-        let worktrees = parse_worktree_list(output);
-        assert_eq!(worktrees.len(), 1);
-        assert!(worktrees[0].locked);
-    }
-
-    #[test]
-    fn test_parse_worktree_list_bare() {
-        let output = r#"worktree /home/user/project.git
-bare
-
-worktree /home/user/project
-HEAD abc123
-branch refs/heads/main
-
-"#;
-        let worktrees = parse_worktree_list(output);
-        assert_eq!(worktrees.len(), 1);
-        assert_eq!(worktrees[0].branch_short.as_deref(), Some("main"));
-    }
 
     #[test]
     fn test_slug_from_branch() {
