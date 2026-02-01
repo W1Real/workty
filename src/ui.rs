@@ -77,11 +77,38 @@ pub fn print_worktree_list(
 
     let icons = Icons::from_options(opts);
 
+    // Calculate column widths
     let max_name_len = worktrees
         .iter()
         .map(|(wt, _)| wt.name().len())
         .max()
-        .unwrap_or(10);
+        .unwrap_or(10)
+        .max(6); // minimum width for "BRANCH" header
+
+    // Print header
+    if opts.color {
+        println!(
+            "  {:width$}  {:>6}  {:>6}  {:>5}  {:>6}  {}",
+            "BRANCH".dimmed(),
+            "DIRTY".dimmed(),
+            "SYNC".dimmed(),
+            "AGE".dimmed(),
+            "REBASE".dimmed(),
+            "PATH".dimmed(),
+            width = max_name_len
+        );
+    } else {
+        println!(
+            "  {:width$}  {:>6}  {:>6}  {:>5}  {:>6}  {}",
+            "BRANCH",
+            "DIRTY",
+            "SYNC",
+            "AGE",
+            "REBASE",
+            "PATH",
+            width = max_name_len
+        );
+    }
 
     for (wt, status) in worktrees {
         let is_current = wt.path == current_path;
@@ -113,7 +140,7 @@ pub fn print_worktree_list(
             };
 
             println!(
-                "{} {}  {}  {:>6}  {:>7}  {}  {}",
+                "{} {}  {:>6}  {:>6}  {:>5}  {:>6}  {}",
                 marker_colored,
                 name_colored,
                 dirty_str,
@@ -124,7 +151,7 @@ pub fn print_worktree_list(
             );
         } else {
             println!(
-                "{} {}  {}  {:>6}  {:>7}  {}  {}",
+                "{} {}  {:>6}  {:>6}  {:>5}  {:>6}  {}",
                 marker, name_padded, dirty_str, sync_str, time_str, rebase_str, path_str
             );
         }
@@ -133,14 +160,14 @@ pub fn print_worktree_list(
 
 fn format_dirty(status: &WorktreeStatus, icons: &Icons, opts: &UiOptions) -> String {
     if status.dirty_count > 0 {
-        let s = format!("{}{:>3}", icons.dirty, status.dirty_count);
+        let s = format!("{} {:>3}", icons.dirty, status.dirty_count);
         if opts.color {
             s.yellow().to_string()
         } else {
             s
         }
     } else {
-        let s = format!("{:>4}", icons.clean);
+        let s = format!("{} {:>3}", icons.clean, "-");
         if opts.color {
             s.green().to_string()
         } else {
@@ -151,11 +178,10 @@ fn format_dirty(status: &WorktreeStatus, icons: &Icons, opts: &UiOptions) -> Str
 
 fn format_sync(status: &WorktreeStatus, icons: &Icons) -> String {
     match (status.ahead, status.behind) {
-        (Some(a), Some(b)) if a > 0 || b > 0 => {
-            format!("{}{}{}{}", icons.arrow_up, a, icons.arrow_down, b)
+        (Some(a), Some(b)) => {
+            format!("{}{} {}{}", icons.arrow_up, a, icons.arrow_down, b)
         }
-        (Some(0), Some(0)) => format!("{}0{}0", icons.arrow_up, icons.arrow_down),
-        _ => "-".to_string(),
+        _ => "  -  ".to_string(),
     }
 }
 
@@ -174,17 +200,17 @@ fn format_time(seconds: Option<i64>) -> String {
 fn format_rebase(status: &WorktreeStatus, icons: &Icons, opts: &UiOptions) -> String {
     if let Some(n) = status.behind_main {
         if n > 0 {
-            let s = format!("{}{}", icons.rebase, n);
+            let s = format!("{} {:>3}", icons.rebase, n);
             if opts.color {
                 s.red().to_string()
             } else {
                 s
             }
         } else {
-            " ".to_string()
+            "    -".to_string()
         }
     } else {
-        " ".to_string()
+        "    -".to_string()
     }
 }
 

@@ -73,7 +73,11 @@ pub struct Cli {
 pub enum Commands {
     /// Show dashboard of all worktrees (default)
     #[command(visible_alias = "ls")]
-    List,
+    List {
+        /// Skip dirty file check for faster output
+        #[arg(long)]
+        fast: bool,
+    },
 
     /// Create a new workspace
     #[command(after_help = "EXAMPLES:
@@ -242,9 +246,14 @@ fn run(cli: Cli, ui_opts: &UiOptions) -> anyhow::Result<()> {
     let start_path = cli.directory.as_deref();
 
     match cli.command {
-        None | Some(Commands::List) => {
+        None => {
             let repo = GitRepo::discover(start_path)?;
-            list::execute(&repo, ui_opts)
+            list::execute(&repo, ui_opts, false)
+        }
+
+        Some(Commands::List { fast }) => {
+            let repo = GitRepo::discover(start_path)?;
+            list::execute(&repo, ui_opts, fast)
         }
 
         Some(Commands::New {

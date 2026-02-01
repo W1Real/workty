@@ -1,14 +1,18 @@
 use crate::git::GitRepo;
-use crate::status::get_all_statuses;
 use crate::status::WorktreeStatus;
+use crate::status::{get_all_statuses, get_all_statuses_fast};
 use crate::ui::{print_worktree_list, UiOptions};
 use crate::worktree::{list_worktrees, Worktree};
 use anyhow::Result;
 use std::path::PathBuf;
 
-pub fn execute(repo: &GitRepo, opts: &UiOptions) -> Result<()> {
+pub fn execute(repo: &GitRepo, opts: &UiOptions, fast: bool) -> Result<()> {
     let worktrees = list_worktrees(repo)?;
-    let statuses = get_all_statuses(repo, &worktrees);
+    let statuses = if fast {
+        get_all_statuses_fast(repo, &worktrees)
+    } else {
+        get_all_statuses(repo, &worktrees)
+    };
 
     let current_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::new());
 
