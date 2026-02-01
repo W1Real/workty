@@ -1,6 +1,7 @@
 pub mod clean;
 pub mod completions;
 pub mod doctor;
+pub mod fetch;
 pub mod go;
 pub mod init;
 pub mod install_man;
@@ -9,3 +10,4 @@ pub mod new;
 pub mod pick;
 pub mod pr;
 pub mod rm;
+pub mod sync;

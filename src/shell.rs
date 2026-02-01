@@ -14,7 +14,8 @@ fn generate_bash(wrap_git: bool, no_cd: bool) -> String {
     output.push_str("# git-workty shell integration for bash\n\n");
 
     if !no_cd {
-        output.push_str(r#"# wcd - fuzzy select and cd to a worktree
+        output.push_str(
+            r#"# wcd - fuzzy select and cd to a worktree
 wcd() {
     local dir
     dir="$(git workty pick 2>/dev/null)"
@@ -52,11 +53,13 @@ wgo() {
     fi
 }
 
-"#);
+"#,
+        );
     }
 
     if wrap_git {
-        output.push_str(r#"# git wrapper that auto-cds for workty commands
+        output.push_str(
+            r#"# git wrapper that auto-cds for workty commands
 git() {
     if [ "$1" = "workty" ]; then
         case "$2" in
@@ -96,7 +99,8 @@ git() {
     fi
 }
 
-"#);
+"#,
+        );
     }
 
     output
@@ -108,7 +112,8 @@ fn generate_zsh(wrap_git: bool, no_cd: bool) -> String {
     output.push_str("# git-workty shell integration for zsh\n\n");
 
     if !no_cd {
-        output.push_str(r#"# wcd - fuzzy select and cd to a worktree
+        output.push_str(
+            r#"# wcd - fuzzy select and cd to a worktree
 wcd() {
     local dir
     dir="$(git workty pick 2>/dev/null)"
@@ -146,11 +151,13 @@ wgo() {
     fi
 }
 
-"#);
+"#,
+        );
     }
 
     if wrap_git {
-        output.push_str(r#"# git wrapper that auto-cds for workty commands
+        output.push_str(
+            r#"# git wrapper that auto-cds for workty commands
 git() {
     if [[ "$1" == "workty" ]]; then
         case "$2" in
@@ -190,7 +197,8 @@ git() {
     fi
 }
 
-"#);
+"#,
+        );
     }
 
     output
@@ -202,7 +210,8 @@ fn generate_fish(wrap_git: bool, no_cd: bool) -> String {
     output.push_str("# git-workty shell integration for fish\n\n");
 
     if !no_cd {
-        output.push_str(r#"# wcd - fuzzy select and cd to a worktree
+        output.push_str(
+            r#"# wcd - fuzzy select and cd to a worktree
 function wcd
     set -l dir (git workty pick 2>/dev/null)
     if test -n "$dir" -a -d "$dir"
@@ -237,11 +246,13 @@ function wgo
     end
 end
 
-"#);
+"#,
+        );
     }
 
     if wrap_git {
-        output.push_str(r#"# git wrapper that auto-cds for workty commands
+        output.push_str(
+            r#"# git wrapper that auto-cds for workty commands
 function git --wraps git
     if test "$argv[1]" = "workty"
         switch $argv[2]
@@ -274,7 +285,8 @@ function git --wraps git
     end
 end
 
-"#);
+"#,
+        );
     }
 
     output
@@ -286,7 +298,8 @@ fn generate_powershell(wrap_git: bool, no_cd: bool) -> String {
     output.push_str("# git-workty shell integration for PowerShell\n\n");
 
     if !no_cd {
-        output.push_str(r#"# wcd - fuzzy select and cd to a worktree
+        output.push_str(
+            r#"# wcd - fuzzy select and cd to a worktree
 function wcd {
     $dir = git workty pick 2>$null
     if ($dir -and (Test-Path $dir)) {
@@ -314,14 +327,17 @@ function wgo {
     }
 }
 
-"#);
+"#,
+        );
     }
 
     if wrap_git {
-        output.push_str(r#"# Note: Git wrapper for PowerShell requires more complex setup.
+        output.push_str(
+            r#"# Note: Git wrapper for PowerShell requires more complex setup.
 # Consider using the wcd, wnew, and wgo functions directly.
 
-"#);
+"#,
+        );
     }
 
     output

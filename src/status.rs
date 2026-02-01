@@ -10,6 +10,10 @@ pub struct WorktreeStatus {
     pub upstream: Option<String>,
     pub ahead: Option<usize>,
     pub behind: Option<usize>,
+    /// Seconds since last commit (HEAD)
+    pub last_commit_time: Option<i64>,
+    /// Behind count relative to origin/main or origin/master
+    pub behind_main: Option<usize>,
 }
 
 impl WorktreeStatus {
@@ -21,9 +25,14 @@ impl WorktreeStatus {
     pub fn has_upstream(&self) -> bool {
         self.upstream.is_some()
     }
+
+    /// Returns true if this branch needs rebasing onto main
+    pub fn needs_rebase(&self) -> bool {
+        self.behind_main.map(|b| b > 0).unwrap_or(false)
+    }
 }
 
-pub fn get_worktree_status(_repo: &GitRepo, worktree: &Worktree) -> WorktreeStatus {
+pub fn get_worktree_status(repo: &GitRepo, worktree: &Worktree) -> WorktreeStatus {
     // Open the worktree repo once and reuse it for all status queries
     let wt_repo = match git2::Repository::open(&worktree.path) {
         Ok(r) => r,
@@ -34,12 +43,16 @@ pub fn get_worktree_status(_repo: &GitRepo, worktree: &Worktree) -> WorktreeStat
 
     let dirty_count = get_dirty_count(&wt_repo);
     let (upstream, ahead, behind) = get_ahead_behind(&wt_repo, worktree);
+    let last_commit_time = get_last_commit_time(&wt_repo);
+    let behind_main = get_behind_main(&wt_repo, repo);
 
     WorktreeStatus {
         dirty_count,
         upstream,
         ahead,
         behind,
+        last_commit_time,
+        behind_main,
     }
 }
 
@@ -107,6 +120,40 @@ fn get_ahead_behind(
     match repo.graph_ahead_behind(local_oid, upstream_oid) {
         Ok((ahead, behind)) => (upstream_name, Some(ahead), Some(behind)),
         Err(_) => (upstream_name, None, None),
+    }
+}
+
+fn get_last_commit_time(repo: &git2::Repository) -> Option<i64> {
+    let head = repo.head().ok()?;
+    let commit = head.peel_to_commit().ok()?;
+    let time = commit.time();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    Some(now - time.seconds())
+}
+
+fn get_behind_main(wt_repo: &git2::Repository, main_repo: &GitRepo) -> Option<usize> {
+    // Get HEAD of this worktree
+    let head = wt_repo.head().ok()?;
+    let head_oid = head.target()?;
+
+    // Find origin/main or origin/master in the main repo
+    let main_repo_lock = main_repo.repo.lock().ok()?;
+
+    let main_oid = main_repo_lock
+        .find_reference("refs/remotes/origin/main")
+        .or_else(|_| main_repo_lock.find_reference("refs/remotes/origin/master"))
+        .ok()?
+        .target()?;
+
+    // Calculate how far behind main this branch is
+    // We need to use the worktree repo for the graph calculation
+    // but the OIDs should be the same across repos sharing the same object store
+    match wt_repo.graph_ahead_behind(head_oid, main_oid) {
+        Ok((_ahead, behind)) => Some(behind),
+        Err(_) => None,
     }
 }
 

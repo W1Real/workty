@@ -44,10 +44,7 @@ pub fn execute(repo: &GitRepo, opts: RmOptions) -> Result<()> {
     let is_dirty = is_worktree_dirty(wt);
     if is_dirty && !opts.force {
         print_error(
-            &format!(
-                "Worktree '{}' has uncommitted changes",
-                opts.name
-            ),
+            &format!("Worktree '{}' has uncommitted changes", opts.name),
             Some("Use --force to remove anyway, or commit/stash changes first."),
         );
         std::process::exit(1);
@@ -65,7 +62,11 @@ pub fn execute(repo: &GitRepo, opts: RmOptions) -> Result<()> {
             .with_prompt(format!(
                 "Remove worktree '{}'{}?",
                 opts.name,
-                if opts.delete_branch { " and its branch" } else { "" }
+                if opts.delete_branch {
+                    " and its branch"
+                } else {
+                    ""
+                }
             ))
             .default(false)
             .interact()?;

@@ -1,0 +1,43 @@
+use crate::git::GitRepo;
+use crate::ui;
+use anyhow::{Context, Result};
+use std::process::Command;
+
+pub fn execute(repo: &GitRepo, all: bool) -> Result<()> {
+    ui::print_info("Fetching from remotes...");
+
+    let git_repo = repo.repo.lock().unwrap();
+    let remotes = git_repo.remotes().context("Failed to list remotes")?;
+
+    let remote_names: Vec<String> = if all {
+        remotes.iter().flatten().map(|s| s.to_string()).collect()
+    } else {
+        // Just fetch origin by default
+        vec!["origin".to_string()]
+    };
+
+    drop(git_repo); // Release the lock before running commands
+
+    for remote in &remote_names {
+        ui::print_info(&format!("  Fetching {}...", remote));
+
+        let output = Command::new("git")
+            .current_dir(&repo.root)
+            .args(["fetch", "--prune", remote])
+            .output()
+            .context("Failed to run git fetch")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            ui::print_warning(&format!("Failed to fetch {}: {}", remote, stderr.trim()));
+        }
+    }
+
+    ui::print_success(&format!(
+        "Fetched {} remote{}",
+        remote_names.len(),
+        if remote_names.len() == 1 { "" } else { "s" }
+    ));
+
+    Ok(())
+}

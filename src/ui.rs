@@ -29,6 +29,7 @@ pub struct Icons {
     pub clean: &'static str,
     pub arrow_up: &'static str,
     pub arrow_down: &'static str,
+    pub rebase: &'static str,
 }
 
 impl Icons {
@@ -39,6 +40,7 @@ impl Icons {
             clean: "✓",
             arrow_up: "↑",
             arrow_down: "↓",
+            rebase: "⟳",
         }
     }
 
@@ -49,6 +51,7 @@ impl Icons {
             clean: "-",
             arrow_up: "^",
             arrow_down: "v",
+            rebase: "R",
         }
     }
 
@@ -90,6 +93,8 @@ pub fn print_worktree_list(
 
         let dirty_str = format_dirty(status, &icons, opts);
         let sync_str = format_sync(status, &icons);
+        let time_str = format_time(status.last_commit_time);
+        let rebase_str = format_rebase(status, &icons, opts);
         let path_str = shorten_path(&wt.path);
 
         if opts.color {
@@ -108,13 +113,19 @@ pub fn print_worktree_list(
             };
 
             println!(
-                "{} {}  {}  {:>6}  {}",
-                marker_colored, name_colored, dirty_str, sync_str, path_str.dimmed()
+                "{} {}  {}  {:>6}  {:>7}  {}  {}",
+                marker_colored,
+                name_colored,
+                dirty_str,
+                sync_str,
+                time_str.dimmed(),
+                rebase_str,
+                path_str.dimmed()
             );
         } else {
             println!(
-                "{} {}  {}  {:>6}  {}",
-                marker, name_padded, dirty_str, sync_str, path_str
+                "{} {}  {}  {:>6}  {:>7}  {}  {}",
+                marker, name_padded, dirty_str, sync_str, time_str, rebase_str, path_str
             );
         }
     }
@@ -148,6 +159,35 @@ fn format_sync(status: &WorktreeStatus, icons: &Icons) -> String {
     }
 }
 
+fn format_time(seconds: Option<i64>) -> String {
+    match seconds {
+        Some(s) if s < 60 => "now".to_string(),
+        Some(s) if s < 3600 => format!("{}m", s / 60),
+        Some(s) if s < 86400 => format!("{}h", s / 3600),
+        Some(s) if s < 604800 => format!("{}d", s / 86400),
+        Some(s) if s < 2592000 => format!("{}w", s / 604800),
+        Some(s) => format!("{}mo", s / 2592000),
+        None => "-".to_string(),
+    }
+}
+
+fn format_rebase(status: &WorktreeStatus, icons: &Icons, opts: &UiOptions) -> String {
+    if let Some(n) = status.behind_main {
+        if n > 0 {
+            let s = format!("{}{}", icons.rebase, n);
+            if opts.color {
+                s.red().to_string()
+            } else {
+                s
+            }
+        } else {
+            " ".to_string()
+        }
+    } else {
+        " ".to_string()
+    }
+}
+
 pub fn shorten_path(path: &Path) -> String {
     if let Some(home) = dirs::home_dir() {
         if let Ok(stripped) = path.strip_prefix(&home) {
@@ -158,35 +198,32 @@ pub fn shorten_path(path: &Path) -> String {
 }
 
 #[derive(Serialize)]
-struct JsonOutput<'a> {
-    repo: RepoInfo<'a>,
-    current: &'a str,
-    worktrees: Vec<JsonWorktree<'a>>,
+struct JsonOutput {
+    repo: RepoInfo,
+    current: String,
+    worktrees: Vec<JsonWorktree>,
 }
 
 #[derive(Serialize)]
-struct RepoInfo<'a> {
-    root: &'a str,
-    common_dir: &'a str,
+struct RepoInfo {
+    root: String,
+    common_dir: String,
 }
 
 #[derive(Serialize)]
-struct JsonWorktree<'a> {
-    path: &'a str,
-    branch: Option<&'a str>,
-    branch_short: Option<&'a str>,
-    head: &'a str,
+struct JsonWorktree {
+    path: String,
+    branch: Option<String>,
+    branch_short: Option<String>,
+    head: String,
     detached: bool,
     locked: bool,
-    dirty: DirtyInfo,
-    upstream: Option<&'a str>,
+    dirty_count: usize,
+    upstream: Option<String>,
     ahead: Option<usize>,
     behind: Option<usize>,
-}
-
-#[derive(Serialize)]
-struct DirtyInfo {
-    count: usize,
+    last_commit_seconds: Option<i64>,
+    behind_main: Option<usize>,
 }
 
 fn print_worktree_list_json(
@@ -194,34 +231,30 @@ fn print_worktree_list_json(
     worktrees: &[(Worktree, WorktreeStatus)],
     current_path: &Path,
 ) {
-    let root_str = repo.root.to_string_lossy();
-    let common_str = repo.common_dir.to_string_lossy();
-    let current_str = current_path.to_string_lossy();
-
     let json_worktrees: Vec<JsonWorktree> = worktrees
         .iter()
         .map(|(wt, status)| JsonWorktree {
-            path: Box::leak(wt.path.to_string_lossy().into_owned().into_boxed_str()),
-            branch: wt.branch.as_deref(),
-            branch_short: wt.branch_short.as_deref(),
-            head: &wt.head,
+            path: wt.path.to_string_lossy().into_owned(),
+            branch: wt.branch.clone(),
+            branch_short: wt.branch_short.clone(),
+            head: wt.head.clone(),
             detached: wt.detached,
             locked: wt.locked,
-            dirty: DirtyInfo {
-                count: status.dirty_count,
-            },
-            upstream: status.upstream.as_deref(),
+            dirty_count: status.dirty_count,
+            upstream: status.upstream.clone(),
             ahead: status.ahead,
             behind: status.behind,
+            last_commit_seconds: status.last_commit_time,
+            behind_main: status.behind_main,
         })
         .collect();
 
     let output = JsonOutput {
         repo: RepoInfo {
-            root: Box::leak(root_str.into_owned().into_boxed_str()),
-            common_dir: Box::leak(common_str.into_owned().into_boxed_str()),
+            root: repo.root.to_string_lossy().into_owned(),
+            common_dir: repo.common_dir.to_string_lossy().into_owned(),
         },
-        current: Box::leak(current_str.into_owned().into_boxed_str()),
+        current: current_path.to_string_lossy().into_owned(),
         worktrees: json_worktrees,
     };
 

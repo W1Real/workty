@@ -138,7 +138,7 @@ fn test_dirty_detection() {
         .expect("Should find dirty-test worktree");
 
     assert_eq!(
-        dirty_wt["dirty"]["count"].as_u64(),
+        dirty_wt["dirty_count"].as_u64(),
         Some(0),
         "Should be clean initially"
     );
@@ -157,7 +157,7 @@ fn test_dirty_detection() {
         .expect("Should find dirty-test worktree");
 
     assert!(
-        dirty_wt_after["dirty"]["count"].as_u64().unwrap() > 0,
+        dirty_wt_after["dirty_count"].as_u64().unwrap() > 0,
         "Should detect dirty state"
     );
 }

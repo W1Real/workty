@@ -11,7 +11,9 @@ use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
 
-use crate::commands::{clean, completions, doctor, go, init, install_man, list, new, pick, pr, rm};
+use crate::commands::{
+    clean, completions, doctor, fetch, go, init, install_man, list, new, pick, pr, rm, sync,
+};
 use crate::git::GitRepo;
 use crate::ui::UiOptions;
 
@@ -191,6 +193,30 @@ pub enum Commands {
         open: bool,
     },
 
+    /// Fetch from remotes (updates tracking info for all worktrees)
+    #[command(after_help = "EXAMPLES:
+    git workty fetch
+    git workty fetch --all")]
+    Fetch {
+        /// Fetch from all remotes, not just origin
+        #[arg(long, short = 'a')]
+        all: bool,
+    },
+
+    /// Rebase all clean worktrees onto their upstream
+    #[command(after_help = "EXAMPLES:
+    git workty sync --dry-run
+    git workty sync --fetch")]
+    Sync {
+        /// Show what would be done without doing it
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+
+        /// Fetch from origin before syncing
+        #[arg(long, short = 'f')]
+        fetch: bool,
+    },
+
     /// Install manpage to ~/.local/share/man/man1
     InstallMan,
 }
@@ -317,6 +343,16 @@ fn run(cli: Cli, ui_opts: &UiOptions) -> anyhow::Result<()> {
                     open,
                 },
             )
+        }
+
+        Some(Commands::Fetch { all }) => {
+            let repo = GitRepo::discover(start_path)?;
+            fetch::execute(&repo, all)
+        }
+
+        Some(Commands::Sync { dry_run, fetch }) => {
+            let repo = GitRepo::discover(start_path)?;
+            sync::execute(&repo, sync::SyncOptions { dry_run, fetch })
         }
 
         Some(Commands::InstallMan) => install_man::execute(cli.yes),

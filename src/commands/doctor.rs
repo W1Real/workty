@@ -18,7 +18,10 @@ pub fn execute(start_path: Option<&Path>) {
     print_check("Inside Git repository", in_repo, &mut all_ok);
 
     if !in_repo {
-        eprintln!("\n{}: Run this command from inside a Git repository.", "hint".cyan());
+        eprintln!(
+            "\n{}: Run this command from inside a Git repository.",
+            "hint".cyan()
+        );
         return;
     }
 
@@ -42,10 +45,7 @@ pub fn execute(start_path: Option<&Path>) {
         let prunable: Vec<_> = wts.iter().filter(|wt| wt.prunable).collect();
         if !prunable.is_empty() {
             print_warn(&format!("{} prunable worktree(s) found", prunable.len()));
-            eprintln!(
-                "  {}: Run `git worktree prune` to clean up.",
-                "hint".cyan()
-            );
+            eprintln!("  {}: Run `git worktree prune` to clean up.", "hint".cyan());
         }
     }
 
@@ -85,10 +85,16 @@ pub fn execute(start_path: Option<&Path>) {
             eprintln!("  {} GitHub CLI authenticated", "✓".green());
         } else {
             eprintln!("  {} GitHub CLI not authenticated", "○".yellow());
-            eprintln!("  {}: Run `gh auth login` to enable PR features.", "hint".cyan());
+            eprintln!(
+                "  {}: Run `gh auth login` to enable PR features.",
+                "hint".cyan()
+            );
         }
     } else {
-        eprintln!("  {} GitHub CLI (gh) not installed (optional)", "○".dimmed());
+        eprintln!(
+            "  {} GitHub CLI (gh) not installed (optional)",
+            "○".dimmed()
+        );
     }
 
     eprintln!();
