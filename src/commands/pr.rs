@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::gh::{checkout_pr, get_pr_branch, is_gh_authenticated, is_gh_installed};
 use crate::git::GitRepo;
-use crate::ui::{print_error, print_info, print_success};
+use crate::ui::{print_info, print_success};
 use crate::worktree::{list_worktrees, slug_from_branch};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
@@ -14,19 +14,11 @@ pub struct PrOptions {
 
 pub fn execute(repo: &GitRepo, opts: PrOptions) -> Result<()> {
     if !is_gh_installed() {
-        print_error(
-            "GitHub CLI (gh) is not installed",
-            Some("Install it from https://cli.github.com/ to use PR features."),
-        );
-        std::process::exit(1);
+        bail!("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
     }
 
     if !is_gh_authenticated() {
-        print_error(
-            "GitHub CLI is not authenticated",
-            Some("Run `gh auth login` to authenticate."),
-        );
-        std::process::exit(1);
+        bail!("GitHub CLI is not authenticated. Run `gh auth login` to authenticate.");
     }
 
     let config = Config::load(repo)?;
@@ -67,14 +59,13 @@ pub fn execute(repo: &GitRepo, opts: PrOptions) -> Result<()> {
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
+    let path_str = worktree_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Path contains invalid UTF-8: {:?}", worktree_path))?;
+
     let output = Command::new("git")
         .current_dir(&repo.root)
-        .args([
-            "worktree",
-            "add",
-            worktree_path.to_str().unwrap(),
-            "--detach",
-        ])
+        .args(["worktree", "add", path_str, "--detach"])
         .output()
         .context("Failed to create worktree")?;
 

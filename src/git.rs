@@ -12,9 +12,10 @@ pub struct GitRepo {
 
 impl GitRepo {
     pub fn discover(start_path: Option<&Path>) -> Result<Self> {
-        let working_directory = start_path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let working_directory = match start_path {
+            Some(p) => PathBuf::from(p),
+            None => std::env::current_dir().context("Failed to determine current directory")?,
+        };
 
         let repo = git2::Repository::discover(&working_directory)
             .context("Failed to discover git repository")?;
@@ -65,7 +66,10 @@ impl GitRepo {
     }
 
     pub fn branch_exists(&self, branch_name: &str) -> bool {
-        let repo = self.repo.lock().unwrap();
+        let repo = match self.repo.lock() {
+            Ok(r) => r,
+            Err(_) => return false,
+        };
         let exists = repo
             .find_branch(branch_name, git2::BranchType::Local)
             .is_ok();
@@ -73,7 +77,10 @@ impl GitRepo {
     }
 
     pub fn is_merged(&self, branch: &str, base: &str) -> Result<bool> {
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Failed to lock repository"))?;
 
         let branch_oid = match repo.revparse_single(branch) {
             Ok(obj) => obj.id(),
@@ -110,11 +117,7 @@ pub fn run_git_command(working_directory: Option<&Path>, args: &[&str]) -> Resul
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "git {} failed: {}",
-            args.first().unwrap_or(&""),
-            stderr.trim()
-        );
+        bail!("git {} failed: {}", args.join(" "), stderr.trim());
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())

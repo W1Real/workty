@@ -83,7 +83,7 @@ pub enum Commands {
     #[command(after_help = "EXAMPLES:
     git workty new feat/login
     git workty new hotfix --from main
-    git workty new feature --print-path")]
+    git workty new feature --no-fetch --no-push")]
     New {
         /// Branch name for the new workspace
         name: String,
@@ -103,6 +103,14 @@ pub enum Commands {
         /// Open the worktree in configured editor
         #[arg(long, short = 'o')]
         open: bool,
+
+        /// Skip fetching from remote before creating
+        #[arg(long)]
+        no_fetch: bool,
+
+        /// Skip pushing to set upstream after creating
+        #[arg(long)]
+        no_push: bool,
     },
 
     /// Print path to a worktree by name
@@ -271,6 +279,8 @@ fn run(cli: Cli, ui_opts: &UiOptions) -> anyhow::Result<()> {
             path,
             print_path,
             open,
+            no_fetch,
+            no_push,
         }) => {
             let repo = GitRepo::discover(start_path)?;
             new::execute(
@@ -281,6 +291,8 @@ fn run(cli: Cli, ui_opts: &UiOptions) -> anyhow::Result<()> {
                     path,
                     print_path,
                     open,
+                    no_fetch,
+                    no_push,
                 },
             )
         }

@@ -12,6 +12,8 @@ pub struct NewOptions {
     pub path: Option<PathBuf>,
     pub print_path: bool,
     pub open: bool,
+    pub no_fetch: bool,
+    pub no_push: bool,
 }
 
 pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
@@ -56,14 +58,13 @@ pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
     if branch_already_exists {
         print_info(&format!("Using existing branch '{}'", branch_name));
 
+        let path_str = worktree_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path contains invalid UTF-8: {:?}", worktree_path))?;
+
         let output = Command::new("git")
             .current_dir(&repo.root)
-            .args([
-                "worktree",
-                "add",
-                worktree_path.to_str().unwrap(),
-                branch_name,
-            ])
+            .args(["worktree", "add", path_str, branch_name])
             .output()
             .context("Failed to create worktree")?;
 
@@ -73,19 +74,21 @@ pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
         }
     } else {
         // Try to fetch upstream of base to ensure we are up to date
-        if let Some(upstream) = get_upstream(repo, &base) {
-            print_info(&format!("Fetching {} to ensure fresh start...", upstream));
+        if !opts.no_fetch {
+            if let Some(upstream) = get_upstream(repo, &base) {
+                print_info(&format!("Fetching {} to ensure fresh start...", upstream));
 
-            // upstream is likely "origin/main", we want to split to "origin" "main"
-            if let Some((remote, branch)) = upstream.split_once('/') {
-                let _ = Command::new("git")
-                    .current_dir(&repo.root)
-                    .args(["fetch", remote, branch])
-                    .output();
+                // upstream is likely "origin/main", we want to split to "origin" "main"
+                if let Some((remote, branch)) = upstream.split_once('/') {
+                    let _ = Command::new("git")
+                        .current_dir(&repo.root)
+                        .args(["fetch", remote, branch])
+                        .output();
 
-                // Update base to use the upstream ref (e.g. origin/main)
-                // so we branch off the latest remote commit
-                base = upstream;
+                    // Update base to use the upstream ref (e.g. origin/main)
+                    // so we branch off the latest remote commit
+                    base = upstream;
+                }
             }
         }
 
@@ -94,16 +97,13 @@ pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
             branch_name, base
         ));
 
+        let path_str = worktree_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path contains invalid UTF-8: {:?}", worktree_path))?;
+
         let output = Command::new("git")
             .current_dir(&repo.root)
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                branch_name,
-                worktree_path.to_str().unwrap(),
-                &base,
-            ])
+            .args(["worktree", "add", "-b", branch_name, path_str, &base])
             .output()
             .context("Failed to create worktree")?;
 
@@ -112,26 +112,25 @@ pub fn execute(repo: &GitRepo, opts: NewOptions) -> Result<()> {
             bail!("Failed to create worktree: {}", stderr.trim());
         }
 
-        // Try to set upstream
-        print_info("Setting upstream...");
-        let push_res = Command::new("git")
-            .current_dir(&repo.root)
-            .args(["push", "-u", "origin", branch_name])
-            .output();
+        // Try to set upstream (unless --no-push)
+        if !opts.no_push {
+            print_info("Setting upstream...");
+            let push_res = Command::new("git")
+                .current_dir(&repo.root)
+                .args(["push", "-u", "origin", branch_name])
+                .output();
 
-        match push_res {
-            Ok(p) if p.status.success() => {
-                print_success("Upstream set successfully");
-            }
-            Ok(p) => {
-                let stderr = String::from_utf8_lossy(&p.stderr);
-                print_info(&format!(
-                    "Note: Could not set upstream (remote might not exist yet?)\nGit error: {}",
-                    stderr.trim()
-                ));
-            }
-            Err(_) => {
-                print_info("Note: Could not run git push to set upstream");
+            match push_res {
+                Ok(p) if p.status.success() => {
+                    print_success("Upstream set successfully");
+                }
+                Ok(p) => {
+                    let stderr = String::from_utf8_lossy(&p.stderr);
+                    print_info(&format!("Note: Could not set upstream: {}", stderr.trim()));
+                }
+                Err(_) => {
+                    print_info("Note: Could not run git push to set upstream");
+                }
             }
         }
     }

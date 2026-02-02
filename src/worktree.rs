@@ -32,17 +32,22 @@ impl Worktree {
 }
 
 fn check_same_path(p1: &Path, p2: &Path) -> bool {
-    p1.canonicalize().ok() == p2.canonicalize().ok()
+    match (p1.canonicalize(), p2.canonicalize()) {
+        (Ok(c1), Ok(c2)) => c1 == c2,
+        _ => false, // If either fails to canonicalize, they're not the same
+    }
 }
 
 pub fn list_worktrees(repo: &GitRepo) -> Result<Vec<Worktree>> {
-    let git_repo = repo.repo.lock().unwrap();
+    let git_repo = repo
+        .repo
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to lock repository"))?;
     let mut worktrees = Vec::new();
 
     // 1. Linked Worktrees
     let worktree_names = git_repo.worktrees().context("Failed to list worktrees")?;
-    for name in worktree_names.iter() {
-        let name = name.unwrap();
+    for name in worktree_names.iter().flatten() {
         // git2::Worktree structure
         let wt = git_repo.find_worktree(name)?;
         let path = wt.path().to_path_buf();

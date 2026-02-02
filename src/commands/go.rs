@@ -1,7 +1,6 @@
 use crate::git::GitRepo;
-use crate::ui::print_error;
 use crate::worktree::{find_worktree, list_worktrees};
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 pub fn execute(repo: &GitRepo, name: &str) -> Result<()> {
     let worktrees = list_worktrees(repo)?;
@@ -10,10 +9,9 @@ pub fn execute(repo: &GitRepo, name: &str) -> Result<()> {
         println!("{}", wt.path.display());
         Ok(())
     } else {
-        print_error(
-            &format!("Worktree '{}' not found", name),
-            Some("Use `git workty pick` to interactively select a worktree, or `git workty list` to see all worktrees."),
+        bail!(
+            "Worktree '{}' not found. Use `git workty list` to see available worktrees.",
+            name
         );
-        std::process::exit(1);
     }
 }

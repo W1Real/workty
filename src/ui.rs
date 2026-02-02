@@ -185,7 +185,7 @@ fn format_sync(status: &WorktreeStatus, icons: &Icons) -> String {
     }
 }
 
-fn format_time(seconds: Option<i64>) -> String {
+pub fn format_time(seconds: Option<i64>) -> String {
     match seconds {
         Some(s) if s < 60 => "now".to_string(),
         Some(s) if s < 3600 => format!("{}m", s / 60),

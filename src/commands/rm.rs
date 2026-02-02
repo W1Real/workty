@@ -1,6 +1,6 @@
 use crate::git::GitRepo;
 use crate::status::is_worktree_dirty;
-use crate::ui::{print_error, print_success, print_warning};
+use crate::ui::{print_success, print_warning};
 use crate::worktree::{find_worktree, list_worktrees};
 use anyhow::{bail, Context, Result};
 use dialoguer::Confirm;
@@ -24,30 +24,21 @@ pub fn execute(repo: &GitRepo, opts: RmOptions) -> Result<()> {
         )
     })?;
 
-    let current_path = std::env::current_dir().unwrap_or_default();
+    let current_path = std::env::current_dir().context("Failed to get current directory")?;
     if wt.path == current_path {
-        print_error(
-            "Cannot remove the current worktree",
-            Some("Change to a different worktree first with `wcd` or `git workty go`."),
-        );
-        std::process::exit(1);
+        bail!("Cannot remove the current worktree. Change to a different worktree first.");
     }
 
     if wt.is_main_worktree(repo) {
-        print_error(
-            "Cannot remove the main worktree",
-            Some("The main worktree is the original repository clone."),
-        );
-        std::process::exit(1);
+        bail!("Cannot remove the main worktree (original repository clone)");
     }
 
     let is_dirty = is_worktree_dirty(wt);
     if is_dirty && !opts.force {
-        print_error(
-            &format!("Worktree '{}' has uncommitted changes", opts.name),
-            Some("Use --force to remove anyway, or commit/stash changes first."),
+        bail!(
+            "Worktree '{}' has uncommitted changes. Use --force to remove anyway.",
+            opts.name
         );
-        std::process::exit(1);
     }
 
     if is_dirty {
@@ -72,19 +63,21 @@ pub fn execute(repo: &GitRepo, opts: RmOptions) -> Result<()> {
             .interact()?;
 
         if !confirm {
-            eprintln!("Aborted.");
-            std::process::exit(1);
+            bail!("Aborted");
         }
     }
 
     let branch_name = wt.branch_short.clone();
     let wt_path = wt.path.clone();
+    let path_str = wt_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Path contains invalid UTF-8: {:?}", wt_path))?;
 
     let mut args = vec!["worktree", "remove"];
     if opts.force {
         args.push("--force");
     }
-    args.push(wt_path.to_str().unwrap());
+    args.push(path_str);
 
     let output = Command::new("git")
         .current_dir(&repo.root)

@@ -3,7 +3,7 @@ use crate::git::GitRepo;
 use crate::status::{get_all_statuses, is_worktree_dirty};
 use crate::ui::{print_info, print_success, print_warning};
 use crate::worktree::{list_worktrees, Worktree};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use dialoguer::Confirm;
 use is_terminal::IsTerminal;
 use std::process::Command;
@@ -39,6 +39,15 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
 
     let has_filter = opts.merged || opts.gone || opts.stale_days.is_some();
 
+    if !has_filter {
+        print_info("No filter specified. Use one of:");
+        println!("  --merged      Remove worktrees whose branches are merged into base");
+        println!("  --gone        Remove worktrees whose upstream branch was deleted");
+        println!("  --stale N     Remove worktrees not touched in N days");
+        println!("\nAdd --dry-run to preview what would be removed.");
+        return Ok(());
+    }
+
     let candidates: Vec<&Worktree> = worktrees
         .iter()
         .filter(|wt| {
@@ -58,11 +67,6 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
                 if branch == &config.base {
                     return false;
                 }
-            }
-
-            // If no filter specified, don't include anything
-            if !has_filter {
-                return false;
             }
 
             // Check --merged
@@ -104,14 +108,19 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
         return Ok(());
     }
 
+    // Compute dirty status once per candidate to avoid redundant checks
+    let candidates_with_dirty: Vec<(&Worktree, bool)> = candidates
+        .into_iter()
+        .map(|wt| {
+            let is_dirty = is_worktree_dirty(wt);
+            (wt, is_dirty)
+        })
+        .collect();
+
     println!("Worktrees to remove:");
-    for wt in &candidates {
-        let dirty = if is_worktree_dirty(wt) {
-            " (dirty)"
-        } else {
-            ""
-        };
-        println!("  - {}{}", wt.name(), dirty);
+    for (wt, is_dirty) in &candidates_with_dirty {
+        let dirty_str = if *is_dirty { " (dirty)" } else { "" };
+        println!("  - {}{}", wt.name(), dirty_str);
     }
 
     if opts.dry_run {
@@ -119,7 +128,7 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
         return Ok(());
     }
 
-    let dirty_count = candidates.iter().filter(|wt| is_worktree_dirty(wt)).count();
+    let dirty_count = candidates_with_dirty.iter().filter(|(_, d)| *d).count();
     if dirty_count > 0 {
         print_warning(&format!(
             "{} worktree(s) have uncommitted changes and will be skipped.",
@@ -127,9 +136,10 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
         ));
     }
 
-    let clean_candidates: Vec<&&Worktree> = candidates
+    let clean_candidates: Vec<&Worktree> = candidates_with_dirty
         .iter()
-        .filter(|wt| !is_worktree_dirty(wt))
+        .filter(|(_, is_dirty)| !is_dirty)
+        .map(|(wt, _)| *wt)
         .collect();
 
     if clean_candidates.is_empty() {
@@ -148,15 +158,19 @@ pub fn execute(repo: &GitRepo, opts: CleanOptions) -> Result<()> {
             return Ok(());
         }
     } else if !opts.yes {
-        print_warning("Non-interactive mode requires --yes flag for destructive operations.");
-        std::process::exit(1);
+        bail!("Non-interactive mode requires --yes flag for destructive operations");
     }
 
     let mut removed = 0;
     for wt in clean_candidates {
+        let path_str = wt
+            .path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path contains invalid UTF-8: {:?}", wt.path))?;
+
         let output = Command::new("git")
             .current_dir(&repo.root)
-            .args(["worktree", "remove", wt.path.to_str().unwrap()])
+            .args(["worktree", "remove", path_str])
             .output()
             .context("Failed to remove worktree")?;
 
